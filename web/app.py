@@ -381,6 +381,29 @@ def serve_screenshot(filename):
     return send_from_directory(str(Config.SCREENSHOTS_DIR), filename)
 
 
+
+@app.route("/live")
+@auth.login_required
+def live_viewer():
+    return render_template("live_viewer.html")
+
+
+@app.route("/api/grid-status")
+@auth.login_required
+def grid_status():
+    import requests
+    try:
+        r = requests.get(f"{os.getenv('SELENIUM_HUB', 'http://localhost:4444')}/status", timeout=3)
+        data = r.json()
+        return jsonify({
+            "success": True,
+            "ready": data.get("value", {}).get("ready", False),
+            "nodes": len(data.get("value", {}).get("nodes", [])),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)[:100]})
+
+
 # ==================== Export ====================
 @app.route("/export/json")
 @auth.login_required
