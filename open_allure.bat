@@ -1,0 +1,6 @@
+@echo off
+echo Generating Allure Report...
+allure generate reports/allure-results -o reports/allure-report --clean
+echo Opening Allure Report...
+allure open reports/allure-report
+pause

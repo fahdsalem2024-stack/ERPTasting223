@@ -1,0 +1,17 @@
+﻿version: '3.8'
+services:
+  erp-web:
+    build: .
+    container_name: erp-automation
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - BASE_URL=${BASE_URL}
+      - LOGIN_USERNAME=${LOGIN_USERNAME}
+      - LOGIN_PASSWORD=${LOGIN_PASSWORD}
+      - SECRET_KEY=${SECRET_KEY}
+    volumes:
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+      - ./config:/app/config

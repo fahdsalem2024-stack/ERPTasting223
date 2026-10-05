@@ -1,0 +1,138 @@
+﻿{% extends "base.html" %}
+
+{% block title %}{{ t('tests') }} - {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="animate-in">
+    <div class="mb-4">
+        <h1 class="display-5 fw-bold mb-2">
+            <i class="bi bi-clipboard-check text-primary"></i>
+            {{ t('tests') }}
+        </h1>
+        <p class="text-muted fs-5">{{ t('tests_list_subtitle') }}</p>
+    </div>
+
+    {% if tests %}
+        <div class="row g-4">
+            {% for test in tests %}
+            <div class="col-lg-6">
+                <div class="card test-card h-100">
+                    <div class="card-body">
+                        <div class="d-flex gap-3 mb-3">
+                            <div class="test-icon">{{ test.icon }}</div>
+                            <div class="flex-grow-1">
+                                <h4 class="fw-bold mb-1">{{ test.name }}</h4>
+                                <p class="text-muted mb-2">{{ test.description }}</p>
+                                <div>
+                                    {% for tag in test.tags %}
+                                    <span class="badge bg-light text-dark border">{{ tag.upper() }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <hr>
+
+                        <div class="row g-3 mb-3">
+                            <div class="col-6">
+                                <div class="text-muted small">{{ t('test_category_label') }}</div>
+                                <strong>{{ test.category }}</strong>
+                            </div>
+                            <div class="col-6">
+                                <div class="text-muted small">{{ t('test_duration_label') }}</div>
+                                <strong>{{ test.duration_estimate }} {{ t('seconds') }}</strong>
+                            </div>
+                        </div>
+
+                        <details class="mb-3">
+                            <summary class="fw-bold text-primary" style="cursor: pointer;">
+                                <i class="bi bi-list-check"></i> {{ t('test_steps') }}
+                            </summary>
+                            <ol class="mt-2 mb-0 ps-4">
+                                {% for step in test.steps %}
+                                <li>{{ step }}</li>
+                                {% endfor %}
+                            </ol>
+                        </details>
+
+                        <button class="btn btn-primary w-100 run-test-btn"
+                                data-test-path="{{ test.test_path }}"
+                                data-test-name="{{ test.name }}">
+                            <i class="bi bi-play-fill"></i> {{ t('run_now') }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="empty-state">
+            <i class="bi bi-inbox"></i>
+            <p>{{ t('no_data') }}</p>
+        </div>
+    {% endif %}
+</div>
+
+<div class="modal fade" id="runningModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="bi bi-play-circle"></i> {{ t('running') }}
+                </h5>
+            </div>
+            <div class="modal-body">
+
+                <div class="text-center mb-3">
+                    <h4 class="fw-bold mb-1" id="runTestName">—</h4>
+                    <div class="text-muted">
+                        <i class="bi bi-clock"></i>
+                        <span id="runTime" class="fw-bold">00:00</span>
+                    </div>
+                </div>
+
+                <div class="progress mb-3" style="height: 14px;">
+                    <div class="progress-bar" id="runProgress" style="width: 0%;"></div>
+                </div>
+
+                <div class="text-center mb-3">
+                    <span id="runStatus" class="badge bg-primary fs-6 px-3 py-2">جاري البدء...</span>
+                </div>
+
+                <div class="border rounded p-3" style="background: var(--bg-primary); max-height: 200px; overflow-y: auto;" id="runLog">
+                </div>
+
+                <div id="finishArea" class="d-none text-center mt-3">
+                    <button class="btn btn-primary" id="viewReportBtn">
+                        <i class="bi bi-file-earmark-bar-graph"></i> {{ t('view_details') }}
+                    </button>
+                </div>
+
+                <!-- Stop Button -->
+                <div class="text-center mt-3">
+                    <button class="btn btn-outline-danger btn-sm d-none" id="stopBtn">
+                        <i class="bi bi-stop-circle"></i>
+                        {% if current_lang == 'ar' %}إيقاف{% else %}Stop{% endif %}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.run-test-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const testPath = btn.dataset.testPath;
+        const testName = btn.dataset.testName;
+        const runner = new TestRunner({});
+        runner.run(testPath, testName);
+    });
+});
+</script>
+{% endblock %}
+
+
+

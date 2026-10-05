@@ -1,0 +1,13 @@
+﻿.git
+.gitignore
+__pycache__
+*.pyc
+venv/
+.pytest_cache/
+logs/
+*.log
+.env
+*.bak
+drivers/
+reports/screenshots/*
+!reports/screenshots/.gitkeep

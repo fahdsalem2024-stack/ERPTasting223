@@ -1,0 +1,100 @@
+﻿"""
+Email notification service
+"""
+import json
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+CONFIG_FILE = BASE_DIR / "config" / "email_config.json"
+
+
+def load_config():
+    if not CONFIG_FILE.exists():
+        return None
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def send_test_notification(summary, test_name=""):
+    """
+    Send email notification about a test run
+    """
+    config = load_config()
+    if not config or not config.get("enabled"):
+        return False
+
+    # Check notify_on
+    notify_on = config.get("notify_on", "failure")
+    passed = summary.get("passed", 0)
+    failed = summary.get("failed", 0) + summary.get("errors", 0)
+    is_success = failed == 0 and passed > 0
+
+    should_send = (
+        notify_on == "always" or
+        (notify_on == "failure" and not is_success) or
+        (notify_on == "success" and is_success)
+    )
+
+    if not should_send:
+        return False
+
+    try:
+        sender = config["sender_email"]
+        password = config["sender_password"]
+        recipients = config["recipients"]
+
+        if not all([sender, password, recipients]):
+            return False
+
+        # Build email
+        msg = MIMEMultipart()
+        msg["From"] = sender
+        msg["To"] = ", ".join(recipients)
+
+        status_text = "✅ نجح" if is_success else "❌ فشل"
+        status_color = "#10b981" if is_success else "#ef4444"
+        msg["Subject"] = f"{status_text} - ERP Test: {test_name or 'اختبار'}"
+
+        body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #f8fafc; padding: 20px; border-radius: 10px;">
+                <h2 style="color: {status_color}; margin: 0 0 20px 0;">
+                    {status_text} — {test_name or 'اختبار'}
+                </h2>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 8px; border-bottom: 1px solid #e2e8f0;"><strong>الاختبار:</strong></td>
+                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">{test_name}</td></tr>
+                    <tr><td style="padding: 8px; border-bottom: 1px solid #e2e8f0;"><strong>الإجمالي:</strong></td>
+                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">{summary.get('total', 0)}</td></tr>
+                    <tr><td style="padding: 8px; border-bottom: 1px solid #e2e8f0;"><strong>ناجح:</strong></td>
+                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; color: #10b981;">{passed}</td></tr>
+                    <tr><td style="padding: 8px; border-bottom: 1px solid #e2e8f0;"><strong>فاشل:</strong></td>
+                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; color: #ef4444;">{failed}</td></tr>
+                    <tr><td style="padding: 8px; border-bottom: 1px solid #e2e8f0;"><strong>المدة:</strong></td>
+                        <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">{int(summary.get('duration_seconds', 0))} ثانية</td></tr>
+                    <tr><td style="padding: 8px;"><strong>التاريخ:</strong></td>
+                        <td style="padding: 8px;">{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</td></tr>
+                </table>
+            </div>
+        </body>
+        </html>
+        """
+        msg.attach(MIMEText(body, "html"))
+
+        with smtplib.SMTP(config["smtp_host"], config["smtp_port"]) as server:
+            server.starttls()
+            server.login(sender, password)
+            server.send_message(msg)
+
+        return True
+    except Exception as e:
+        print(f"Email error: {e}")
+        return False
