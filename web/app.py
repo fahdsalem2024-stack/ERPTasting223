@@ -677,7 +677,10 @@ if __name__ == "__main__":
     print(f"  Open: http://localhost:5000")
     print(f"  Login: admin / password")
     print("=" * 60)
-    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    import os
+port = int(os.environ.get("PORT", 5000))
+debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+app.run(host="0.0.0.0", port=port, debug=debug_mode, use_reloader=False)
 
 
 
