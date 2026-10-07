@@ -461,19 +461,51 @@ class SalesInvoicePage(BasePage):
                 return True
         return False
 
-    def wait_for_save_result(self, timeout=30):
-        """انتظر نتيجة الحفظ"""
+    def wait_for_save_result(self, timeout=30, check_from_url=None):
+        """انتظر نتيجة الحفظ - بتتعامل مع SweetAlert الرابع كمان"""
         logger.info(f"في انتظار نتيجة الحفظ (max {timeout}s)...")
-        original_url = self.driver.current_url
+
+        original_url = check_from_url or self.driver.current_url
+        was_in_addedit = "/AddEdit" in original_url
+
         start = time.time()
 
         while time.time() - start < timeout:
-            current = self.driver.current_url
+            # 1) نشوف لو في SweetAlert رابع ظهر (علامة صح خضراء)
+            try:
+                swal = self.driver.find_elements(By.CSS_SELECTOR, ".swal2-popup")
+                if swal:
+                    for s in swal:
+                        if s.is_displayed():
+                            text = s.text.strip()
+                            # لو ده SweetAlert الرابع (حفظ مع علامة صح)
+                            if "حفظ" in text and "swal2-success" in s.get_attribute("class").lower() or \
+                               s.find_elements(By.CSS_SELECTOR, ".swal2-success"):
+                                logger.info(f"✅ SweetAlert الحفظ الأخير: {text[:100]}")
+                                # دوس موافقة لو فيه زرار
+                                try:
+                                    confirm = s.find_element(By.CSS_SELECTOR, "button.swal2-confirm")
+                                    if confirm.is_displayed():
+                                        self.driver.execute_script("arguments[0].click();", confirm)
+                                        logger.success("✅ ضغط موافقة على SweetAlert الحفظ")
+                                        time.sleep(1)
+                                except Exception:
+                                    pass
+                                # كفاية كده، الحفظ نجح
+                                logger.success("🎯 الحفظ نجح (علامة صح خضراء)")
+                                return True
+            except Exception:
+                pass
 
-            if original_url != current and "/SalesInvoice" in current and "/AddEdit" not in current:
+            # 2) URL change من /AddEdit
+            current = self.driver.current_url
+            if was_in_addedit and "/SalesInvoice" in current and "/AddEdit" not in current:
                 logger.success(f"🎯 الحفظ نجح - الرابط اتغير: {current}")
+                # استنى شوية يمكن SweetAlert الأخير يظهر
+                time.sleep(2)
                 return True
 
+            # 3) Toast نجاح
             try:
                 for el in self.driver.find_elements(
                     By.CSS_SELECTOR,
@@ -481,12 +513,13 @@ class SalesInvoicePage(BasePage):
                 ):
                     if el.is_displayed() and el.text.strip():
                         text = el.text.strip()
-                        if "حفظ" in text or "success" in text.lower() or "saved" in text.lower():
+                        if "حفظ" in text or "success" in text.lower() or "saved" in text.lower() or "تم" in text:
                             logger.success(f"✅ رسالة نجاح: {text}")
                             return True
             except Exception:
                 pass
 
+            # 4) رسالة خطأ
             try:
                 for el in self.driver.find_elements(
                     By.CSS_SELECTOR,
@@ -602,3 +635,5 @@ def wait_for_new_invoice(driver, previous_number, timeout=60, poll=2):
 
     logger.error(f"❌ مفيش فاتورة جديدة بعد {timeout}s")
     return None
+
+

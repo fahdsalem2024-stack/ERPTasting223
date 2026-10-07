@@ -140,3 +140,30 @@ def delete_user(user_id):
 def get_uploads_dir():
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     return UPLOADS_DIR
+
+
+# ==================== Email Config ====================
+EMAIL_CONFIG_FILE = CONFIG_DIR / "email_config.json"
+
+
+def load_email_config():
+    default = {
+        "enabled": False,
+        "smtp_host": "smtp.gmail.com",
+        "smtp_port": 587,
+        "sender_email": "",
+        "sender_password": "",
+        "recipients": [],
+        "notify_on": "failure",
+    }
+    data = _load_json(EMAIL_CONFIG_FILE, {}) or {}
+    return {**default, **data}
+
+
+def save_email_config(config):
+    old = load_email_config()
+    if not config.get("sender_password"):
+        config["sender_password"] = old.get("sender_password", "")
+    config["updated_at"] = datetime.now().isoformat()
+    _save_json(EMAIL_CONFIG_FILE, config)
+    return True

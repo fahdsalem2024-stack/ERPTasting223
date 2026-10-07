@@ -26,7 +26,7 @@
         <div class="card-body p-2">
             <div style="position: relative; background: #000; border-radius: 12px; overflow: hidden;">
                 <iframe
-                    src="http://localhost:7900/vnc.html?autoconnect=true&resize=scale&reconnect=true&password=secret"
+                    src="{{ vnc_full_url }}"
                     style="width: 100%; height: 700px; border: none; display: block;"
                     allow="clipboard-read; clipboard-write">
                 </iframe>
@@ -102,3 +102,4 @@ checkGrid();
 setInterval(checkGrid, 5000);
 </script>
 {% endblock %}
+

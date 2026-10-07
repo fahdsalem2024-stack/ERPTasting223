@@ -2,6 +2,7 @@
 ERP Test Automation - Web Interface v4.2
 """
 import sys
+import os
 import json
 import subprocess
 from pathlib import Path
@@ -255,12 +256,18 @@ def settings():
     slack_config = _load_json(Config.SLACK_CONFIG)
     email_config = _load_json(Config.EMAIL_CONFIG)
     users = settings_helper.load_users()
+
+    from web import test_sites_helper as _tsh
+
+    test_sites_data = _tsh.load_all()
     return render_template(
         "settings.html",
         site_config=site_config,
         slack_config=slack_config,
         email_config=email_config,
         users=users,
+        test_sites_data=test_sites_data,
+        tunnel_config=__import__("web.tunnel_helper", fromlist=["load_config"]).load_config(),
     )
 
 
@@ -385,7 +392,14 @@ def serve_screenshot(filename):
 @app.route("/live")
 @auth.login_required
 def live_viewer():
-    return render_template("live_viewer.html")
+    from web import tunnel_helper
+    config = tunnel_helper.load_config()
+    vnc_full_url = tunnel_helper.get_vnc_full_url()
+    return render_template(
+        "live_viewer.html",
+        vnc_full_url=vnc_full_url,
+        tunnel_config=config,
+    )
 
 
 @app.route("/api/grid-status")
@@ -530,8 +544,132 @@ def _load_json(path):
     except Exception:
         return {}
 
+# ==================== Email Settings ====================
+@app.route("/settings/email", methods=["POST"])
+@auth.login_required
+def settings_email_save():
+    recipients_raw = request.form.get("recipients", "").strip()
+    recipients = [r.strip() for r in recipients_raw.replace("\n", ",").split(",") if r.strip()]
 
-# ==================== Run ====================
+    config = {
+        "enabled": "email_enabled" in request.form,
+        "smtp_host": request.form.get("smtp_host", "").strip(),
+        "smtp_port": int(request.form.get("smtp_port", 587) or 587),
+        "sender_email": request.form.get("sender_email", "").strip(),
+        "sender_password": request.form.get("sender_password", "").strip(),
+        "recipients": recipients,
+        "notify_on": request.form.get("notify_on", "failure"),
+    }
+
+    settings_helper.save_email_config(config)
+    flash("Email settings saved", "success")
+    return redirect(url_for("settings"))
+
+
+@app.route("/settings/email/test", methods=["POST"])
+@auth.login_required
+def settings_email_test():
+    from config import emailer as email_module
+    to_email = request.form.get("test_email", "").strip()
+    if not to_email:
+        return jsonify({"success": False, "message": "Enter target email"})
+    success, message = email_module.send_test_email(to_email)
+    return jsonify({"success": success, "message": message})
+
+
+
+# ==================== Test Sites (Profiles) ====================
+@app.route("/settings/test-sites", methods=["POST"])
+@auth.login_required
+def settings_test_sites_save():
+    from web import test_sites_helper as tsh
+    profile_id = request.form.get("profile_id", "").strip()
+    name = request.form.get("name", "").strip()
+    base_url = request.form.get("base_url", "").strip()
+    username = request.form.get("username", "").strip()
+    password = request.form.get("password", "").strip()
+    notes = request.form.get("notes", "").strip()
+
+    if not name or not base_url or not username:
+        flash("الاسم والرابط واسم المستخدم مطلوبين", "danger")
+        return redirect(url_for("settings") + "#test-sites")
+
+    if profile_id:
+        success, result = tsh.update_profile(
+            profile_id,
+            name=name, base_url=base_url,
+            username=username, password=password, notes=notes
+        )
+        flash("تم تحديث الموقع" if success else "فشل التحديث",
+              "success" if success else "danger")
+    else:
+        success, result = tsh.add_profile(
+            name=name, base_url=base_url,
+            username=username, password=password, notes=notes
+        )
+        flash("تم إضافة الموقع: " + name if success else "فشل الإضافة",
+              "success" if success else "danger")
+
+    return redirect(url_for("settings") + "#test-sites")
+
+
+@app.route("/settings/test-sites/delete/<profile_id>", methods=["POST"])
+@auth.login_required
+def settings_test_sites_delete(profile_id):
+    from web import test_sites_helper as tsh
+    success, message = tsh.delete_profile(profile_id)
+    flash("تم حذف الموقع" if success else message,
+          "success" if success else "danger")
+    return redirect(url_for("settings") + "#test-sites")
+
+
+@app.route("/settings/test-sites/activate/<profile_id>", methods=["POST"])
+@auth.login_required
+def settings_test_sites_activate(profile_id):
+    from web import test_sites_helper as tsh
+    success = tsh.set_active_profile(profile_id)
+    flash("تم تفعيل الموقع" if success else "فشل التفعيل",
+          "success" if success else "danger")
+    return redirect(url_for("settings") + "#test-sites")
+
+
+# ==================== End Test Sites ====================
+
+
+
+# ==================== Tunnel Settings ====================
+@app.route("/settings/tunnel", methods=["POST"])
+@auth.login_required
+def tunnel_settings_save():
+    from web import tunnel_helper
+    flask_url = request.form.get("flask_url", "").strip()
+    vnc_url = request.form.get("vnc_url", "").strip()
+    provider = request.form.get("provider", "cloudflare").strip()
+
+    tunnel_helper.save_config(flask_url, vnc_url, provider)
+    flash("✅ تم حفظ إعدادات Tunnel", "success")
+    return redirect(url_for("settings") + "#tunnel")
+
+
+@app.route("/settings/tunnel/reload", methods=["POST"])
+@auth.login_required
+def tunnel_settings_reload():
+    """يعيد قراءة الروابط من config/tunnel_config.json"""
+    flash("✅ تم إعادة تحميل الإعدادات", "success")
+    return redirect(url_for("settings") + "#tunnel")
+
+
+@app.route("/api/tunnel-info")
+@auth.login_required
+def api_tunnel_info():
+    from web import tunnel_helper
+    config = tunnel_helper.load_config()
+    config["vnc_full_url"] = tunnel_helper.get_vnc_full_url()
+    return jsonify(config)
+
+
+# ==================== End Tunnel ====================
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  ERP Test Automation - Web Interface v4.2")
@@ -540,3 +678,8 @@ if __name__ == "__main__":
     print(f"  Login: admin / password")
     print("=" * 60)
     app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+
+
+
+
+

@@ -98,3 +98,37 @@ def send_test_notification(summary, test_name=""):
     except Exception as e:
         print(f"Email error: {e}")
         return False
+
+def send_test_email(to_email):
+    '''Send a simple test email to verify SMTP settings.'''
+    config = load_config()
+    if not config:
+        return False, 'No email config found'
+
+    sender = config.get('sender_email', '').strip()
+    password = config.get('sender_password', '').strip()
+    smtp_host = config.get('smtp_host', '').strip()
+    smtp_port = int(config.get('smtp_port', 587))
+
+    if not all([sender, password, smtp_host, to_email]):
+        return False, 'Missing fields'
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = sender
+        msg['To'] = to_email
+        msg['Subject'] = 'ERP Test - Email Test'
+
+        body = '<h1>Email Test Success</h1><p>SMTP is working!</p><p>From: ' + sender + '</p>'
+        msg.attach(MIMEText(body, 'html'))
+
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+            server.starttls()
+            server.login(sender, password)
+            server.send_message(msg)
+
+        return True, 'Email sent to ' + to_email
+    except smtplib.SMTPAuthenticationError:
+        return False, 'Auth failed - check App Password'
+    except Exception as e:
+        return False, 'Error: ' + str(e)[:150]
