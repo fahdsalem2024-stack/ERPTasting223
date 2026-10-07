@@ -69,7 +69,23 @@ def _hash_password(password):
 
 def load_users():
     data = _load_json(USERS_FILE, {"users": []})
-    return (data or {}).get("users", [])
+    users = (data or {}).get("users", [])
+
+    # لو مفيش مستخدمين، اعمل admin افتراضي
+    if not users:
+        default_user = {
+            "id": "u_admin",
+            "username": "admin",
+            "password_hash": _hash_password("password"),
+            "full_name": "Administrator",
+            "role": "admin",
+            "active": True,
+            "created_at": datetime.now().isoformat(),
+        }
+        users = [default_user]
+        save_users(users)
+
+    return users
 
 
 def save_users(users):
@@ -167,3 +183,4 @@ def save_email_config(config):
     config["updated_at"] = datetime.now().isoformat()
     _save_json(EMAIL_CONFIG_FILE, config)
     return True
+
