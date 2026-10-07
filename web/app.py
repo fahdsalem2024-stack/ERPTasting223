@@ -526,6 +526,25 @@ def stop_test():
         return jsonify({"success": True, "message": "Test stopping"})
     return jsonify({"success": False, "message": "No test running"})
 
+# ==================== Health Check ====================
+@app.route("/health")
+def health():
+    """Health check endpoint for Railway"""
+    import os
+    from datetime import datetime
+
+    # تحقق من Grid
+    grid_status = "unknown"
+    if os.environ.get("USE_SELENIUM_GRID", "false").lower() == "true":
+        grid_status = "configured"
+
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "port": os.environ.get("PORT", "5000"),
+        "grid": grid_status,
+    }), 200
+
 
 # ==================== Helper ====================
 def _load_json(path):
@@ -671,16 +690,33 @@ def api_tunnel_info():
 # ==================== End Tunnel ====================
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("  ERP Test Automation - Web Interface v4.2")
-    print("=" * 60)
-    print(f"  Open: http://localhost:5000")
-    print(f"  Login: admin / password")
-    print("=" * 60)
     import os
-port = int(os.environ.get("PORT", 5000))
-debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-app.run(host="0.0.0.0", port=port, debug=debug_mode, use_reloader=False)
+    import sys
+    from datetime import datetime
+
+    # معلومات التشغيل
+    print("=" * 60, flush=True)
+    print(f"  ERP Test Automation - Web Interface v4.2", flush=True)
+    print(f"  Started: {datetime.now().isoformat()}", flush=True)
+    print(f"  Python: {sys.version.split()[0]}", flush=True)
+    print(f"  Mode: {'Production' if os.environ.get('FLASK_ENV') == 'production' else 'Development'}", flush=True)
+    print(f"  Debug: {os.environ.get('FLASK_DEBUG', 'false')}", flush=True)
+    print("=" * 60, flush=True)
+
+    port = int(os.environ.get("PORT", 5000))
+    debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+
+    print(f"  Port: {port}", flush=True)
+    print(f"  Debug: {debug_mode}", flush=True)
+    print("=" * 60, flush=True)
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=debug_mode,
+        use_reloader=False,
+        threaded=True,
+    )
 
 
 

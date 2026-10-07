@@ -68,15 +68,19 @@ def _hash_password(password):
 
 
 def load_users():
+    import os
     data = _load_json(USERS_FILE, {"users": []})
     users = (data or {}).get("users", [])
 
     # لو مفيش مستخدمين، اعمل admin افتراضي
     if not users:
+        # اقرأ الباسورد من البيئة أو استخدم default
+        admin_password = os.environ.get("ADMIN_PASSWORD", "password")
+
         default_user = {
             "id": "u_admin",
             "username": "admin",
-            "password_hash": _hash_password("password"),
+            "password_hash": _hash_password(admin_password),
             "full_name": "Administrator",
             "role": "admin",
             "active": True,
@@ -86,8 +90,6 @@ def load_users():
         save_users(users)
 
     return users
-
-
 def save_users(users):
     _save_json(USERS_FILE, {"users": users})
 
