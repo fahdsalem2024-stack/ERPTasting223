@@ -950,6 +950,190 @@ def api_test_debug(task_id):
     return jsonify(info)
 
 
+
+
+# ==================== Tests Registry ====================
+@app.route("/api/registry/tests")
+@auth.login_required
+def api_registry_tests():
+    """يرجّع كل الاختبارات (enriched)"""
+    from config.tests_registry_new import TestsRegistry
+    lang = get_current_lang()
+    try:
+        tests = TestsRegistry.get_enriched(lang)
+        return jsonify({
+            "success": True,
+            "tests": tests,
+            "stats": TestsRegistry.get_stats(),
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"success": False, "error": str(e)[:500], "trace": traceback.format_exc()[:1000]}), 500
+
+
+@app.route("/api/registry/modules")
+@auth.login_required
+def api_registry_modules():
+    """يرجّع المديولات المتاحة"""
+    from config.tests_registry_new import TestsRegistry
+    lang = get_current_lang()
+    try:
+        tests = TestsRegistry.get_all()
+        modules = {}
+        for t in tests:
+            mk = t["module_key"]
+            if mk not in modules:
+                modules[mk] = {
+                    "key": mk,
+                    "name_ar": "الحسابات العامة" if mk == "general_accounting" else "حركات المبيعات",
+                    "name_en": "General Accounting" if mk == "general_accounting" else "Sales Transactions",
+                    "count": 0,
+                }
+            modules[mk]["count"] += 1
+        return jsonify({"success": True, "modules": list(modules.values())})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)[:200]}), 500
+
+
+# ==================== Allure Reports ====================
+@app.route("/allure")
+@auth.login_required
+def allure_index():
+    """صفحة Allure"""
+    return render_template("allure.html")
+
+
+def _find_allure_cli():
+    """يدوّر على allure CLI في أماكن معروفة"""
+    import shutil
+    from pathlib import Path
+
+    # 1) PATH
+    found = shutil.which("allure")
+    if found:
+        return found
+
+    # 2) C:\allure\bin\allure.bat
+    candidates = [
+        Path("C:/allure/bin/allure.bat"),
+        Path("C:/allure/bin/allure"),
+        Path("C:/Program Files/allure/bin/allure.bat"),
+        Path.home() / "scoop" / "shims" / "allure.bat",
+        Path("C:/ProgramData/chocolatey/bin/allure.bat"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+
+    return None
+
+
+@app.route("/api/allure/generate", methods=["POST"])
+@auth.login_required
+def api_allure_generate():
+    """يولّد تقرير Allure"""
+    import subprocess
+    import shutil
+
+    allure_results = BASE_DIR / "reports" / "allure-results"
+    allure_report = BASE_DIR / "reports" / "allure-report"
+
+    if not allure_results.exists():
+        return jsonify({"success": False, "error": "No allure-results folder"})
+
+    # ندور على allure CLI
+    allure_cli = _find_allure_cli()
+    if not allure_cli:
+        return jsonify({
+            "success": False,
+            "error": "Allure CLI not found. Install from: https://github.com/allure-framework/allure2/releases",
+            "hint": "Then place it at C:\\allure and add to PATH"
+        })
+
+    # نشيل القديم
+    if allure_report.exists():
+        try:
+            shutil.rmtree(allure_report, ignore_errors=True)
+        except Exception:
+            pass
+
+    # نشغّل allure generate
+    try:
+        # على Windows، allure.bat محتاج shell=True
+        if allure_cli.endswith(".bat"):
+            cmd = f'"{allure_cli}" generate "{allure_results}" -o "{allure_report}" --clean'
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
+        else:
+            result = subprocess.run(
+                [allure_cli, "generate", str(allure_results), "-o", str(allure_report), "--clean"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+            )
+
+        if result.returncode == 0 and (allure_report / "index.html").exists():
+            return jsonify({
+                "success": True,
+                "message": "Report generated successfully",
+                "cli": allure_cli,
+                "report_path": str(allure_report),
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": (result.stderr or result.stdout or "Unknown error")[:500],
+                "cli": allure_cli,
+                "returncode": result.returncode,
+            })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)[:300], "cli": allure_cli})
+
+
+@app.route("/allure-report/<path:filename>")
+@auth.login_required
+def serve_allure_report(filename):
+    """يقدم ملفات تقرير Allure"""
+    from flask import send_from_directory
+    allure_report = BASE_DIR / "reports" / "allure-report"
+    return send_from_directory(str(allure_report), filename)
+
+
+@app.route("/api/allure/status")
+@auth.login_required
+def api_allure_status():
+    """حالة Allure"""
+    allure_results = BASE_DIR / "reports" / "allure-results"
+    allure_report = BASE_DIR / "reports" / "allure-report"
+
+    allure_cli = _find_allure_cli()
+
+    results_count = 0
+    if allure_results.exists():
+        results_count = len(list(allure_results.glob("*-result.json")))
+
+    return jsonify({
+        "success": True,
+        "cli_installed": allure_cli is not None,
+        "cli_path": allure_cli,
+        "results_exist": allure_results.exists(),
+        "results_count": results_count,
+        "report_exists": allure_report.exists(),
+        "report_index": (allure_report / "index.html").exists(),
+    })
+
+
+# ==================== End Allure ====================
+
 # ==================== End Test Logs ====================
 
 # ==================== End Modules & Pages ====================
