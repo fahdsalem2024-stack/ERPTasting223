@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from loguru import logger
 from config.settings import LOGS_DIR
 
@@ -21,3 +21,14 @@ logger.add(
 )
 
 __all__ = ["logger"]
+
+
+# ===== Force UTF-8 output =====
+import sys
+try:
+    if hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    if hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+except Exception:
+    pass

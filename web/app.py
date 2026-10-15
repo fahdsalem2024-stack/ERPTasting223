@@ -1,4 +1,4 @@
-﻿"""
+"""
 ERP Test Automation - Web Interface v4.2
 """
 import sys
@@ -486,29 +486,58 @@ def run_test():
 @app.route("/api/status/<task_id>")
 @auth.login_required
 def task_status(task_id):
+    """حالة المهمة - يشتغل من QueueManager أو من ملفات الـ results"""
     qm = get_qm()
-    status = qm.get_status()
+    task = qm.get_task(task_id)
 
-    if status["running"] and status["running"]["task_id"] == task_id:
-        return jsonify({
-            "status": status["running"].get("status", "running"),
-            "running": True,
-            "queue_length": status["queue_length"],
-        })
+    # لو المهمة موجودة في QueueManager
+    if task:
+        status = task.get("status", "unknown")
 
-    for i, task in enumerate(status["queue"]):
-        if task["task_id"] == task_id:
+        # لو خلصت أو فشلت، نرجّع التقرير
+        if status in ("completed", "failed", "stopped", "error"):
             return jsonify({
-                "status": "queued",
-                "queued": True,
-                "position": i + 1,
-                "queue_length": status["queue_length"],
+                "status": status,
+                "running": False,
+                "task": task,
+                "duration_seconds": task.get("duration_seconds"),
+                "exit_code": task.get("exit_code"),
+                "summary": qm.read_summary(task_id),
             })
 
-    if (Config.RESULTS_DIR / f"summary_{task_id}.json").exists():
-        return jsonify({"status": "completed", "running": False})
+        # لو لسه شغالة
+        if status == "running":
+            return jsonify({
+                "status": "running",
+                "running": True,
+                "task": task,
+            })
 
-    return jsonify({"status": "unknown", "running": False})
+        # queued
+        if status == "queued":
+            return jsonify({
+                "status": "queued",
+                "running": False,
+                "task": task,
+            })
+
+    # لو مش موجودة في QueueManager، نشوف ملف الـ summary
+    summary_file = Config.RESULTS_DIR / f"summary_{task_id}.json"
+    if summary_file.exists():
+        summary = qm.read_summary(task_id)
+        return jsonify({
+            "status": "completed",
+            "running": False,
+            "summary": summary,
+            "source": "file",
+        })
+
+    # لو مفيش أي حاجة، نرجع unknown مع رسالة
+    return jsonify({
+        "status": "unknown",
+        "running": False,
+        "message": "Task not found in queue or files",
+    })
 
 
 @app.route("/api/queue")
@@ -688,6 +717,242 @@ def api_tunnel_info():
 
 
 # ==================== End Tunnel ====================
+
+
+
+# ==================== Modules & Pages ====================
+@app.route("/api/modules")
+@auth.login_required
+def api_modules():
+    """يرجّع قائمة المديولات والشاشات"""
+    from web import pages_helper
+    lang = get_current_lang()
+    try:
+        modules = pages_helper.get_modules(lang)
+        return jsonify({
+            "success": True,
+            "modules": modules,
+            "count": len(modules),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)[:200]}), 500
+
+
+@app.route("/api/pages")
+@auth.login_required
+def api_pages():
+    """يرجّع كل الصفحات مسطحة"""
+    from web import pages_helper
+    lang = get_current_lang()
+    try:
+        pages = pages_helper.get_all_pages(lang)
+        return jsonify({
+            "success": True,
+            "pages": pages,
+            "count": len(pages),
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)[:200]}), 500
+
+
+@app.route("/api/open-page", methods=["POST"])
+@auth.login_required
+def api_open_page():
+    """يفتح شاشة في المتصفح"""
+    from web import pages_helper, selenium_opener
+    data = request.get_json() or {}
+    module_key = data.get("module_key", "").strip()
+    page_key = data.get("page_key", "").strip()
+    keep_open = int(data.get("keep_open", 60))
+
+    if not module_key or not page_key:
+        return jsonify({"success": False, "error": "module_key & page_key required"}), 400
+
+    # نجيب معلومات الصفحة
+    lang = get_current_lang()
+    page = pages_helper.get_page(module_key, page_key, lang)
+    if not page:
+        return jsonify({"success": False, "error": "Page not found"}), 404
+
+    url_path = page.get("url", "")
+    if not url_path:
+        return jsonify({"success": False, "error": "Page has no URL"}), 400
+
+    # نفتح (Simple: login → open → wait 5s → close)
+    result = selenium_opener.open_page_simple(url_path, wait_seconds=keep_open)
+    return jsonify(result)
+
+
+@app.route("/api/close-browser", methods=["POST"])
+@auth.login_required
+def api_close_browser():
+    """يقفل المتصفح"""
+    from web import selenium_opener
+    opener = selenium_opener.get_opener()
+    if opener.close():
+        return jsonify({"success": True, "message": "Browser closed"})
+    return jsonify({"success": False, "message": "No browser open"})
+
+
+@app.route("/api/browser-status")
+@auth.login_required
+def api_browser_status():
+    """حالة المتصفح"""
+    from web import selenium_opener
+    opener = selenium_opener.get_opener()
+    return jsonify({"success": True, "is_open": opener.is_open()})
+
+
+@app.route("/api/run-module-test", methods=["POST"])
+@auth.login_required
+def api_run_module_test():
+    """
+    يشغّل اختبار كامل لشاشة معينة.
+    - لو sales_invoice → يستخدم test_03_sales_invoice.py
+    - غير كده → يستخدم test_09_general_accounting_smoke.py
+    """
+    data = request.get_json() or {}
+    page_key = data.get("page_key", "").strip()
+    module_key = data.get("module_key", "").strip()
+
+    if not page_key:
+        return jsonify({"success": False, "error": "page_key required"}), 400
+
+    # ✅ اختيار الاختبار حسب الشاشة
+    if page_key == "sales_invoice":
+        # فاتورة البيع كاملة
+        test_path = "tests/functional/test_03_sales_invoice.py::test_full_sales_invoice_flow"
+        test_name = "فاتورة بيع كاملة"
+    elif page_key == "cash_receipt":
+        # سند القبض كامل
+        test_path = "tests/functional/test_04_cash_receipt_voucher.py::test_full_cash_receipt_voucher_flow"
+        test_name = "سند قبض كامل"
+    elif page_key == "purchase_invoice":
+        # فاتورة شراء كاملة
+        test_path = "tests/functional/test_05_purchase_invoice.py::test_full_purchase_invoice_flow"
+        test_name = "فاتورة شراء كاملة"
+    else:
+        # Smoke Test عام
+        test_path = f"tests/functional/test_09_general_accounting_smoke.py::test_individual_module_smoke[{page_key}]"
+        test_name = f"Smoke: {page_key}"
+
+    task_id = f"run_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    qm = get_qm()
+    result = qm.add(task_id, test_path, test_name)
+
+    return jsonify({
+        "success": True,
+        "task_id": task_id,
+        "queued": result["queued"],
+        "position": result["position"],
+        "test_path": test_path,
+        "test_name": test_name,
+    })
+
+
+
+
+@app.route("/api/clear-profile", methods=["POST"])
+@auth.login_required
+def api_clear_profile():
+    """يمسح الـ Chrome Profile (لتسجيل دخول جديد)"""
+    from web import selenium_opener
+    if selenium_opener.clear_profile():
+        return jsonify({"success": True, "message": "Profile cleared"})
+    return jsonify({"success": False, "message": "Failed to clear"})
+
+
+@app.route("/api/profile-status")
+@auth.login_required
+def api_profile_status():
+    """حالة الـ Chrome Profile"""
+    from web import selenium_opener
+    return jsonify({"success": True, **selenium_opener.get_profile_status()})
+
+
+
+# ==================== Test Logs ====================
+@app.route("/api/log/<task_id>")
+@auth.login_required
+def api_get_log(task_id):
+    """يقرأ لوج اختبار"""
+    qm = get_qm()
+    max_lines = int(request.args.get("lines", 200))
+    result = qm.read_log(task_id, max_lines=max_lines)
+    return jsonify(result)
+
+
+@app.route("/api/logs")
+@auth.login_required
+def api_list_logs():
+    """يسرد ملفات اللوج"""
+    from pathlib import Path
+    logs_dir = Path(__file__).resolve().parent.parent / "reports" / "logs"
+    if not logs_dir.exists():
+        return jsonify({"success": True, "logs": []})
+
+    logs = []
+    for f in sorted(logs_dir.glob("*.log"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
+        logs.append({
+            "name": f.name,
+            "size_kb": round(f.stat().st_size / 1024, 1),
+            "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+        })
+
+    return jsonify({"success": True, "logs": logs})
+
+
+@app.route("/api/test-debug/<task_id>")
+@auth.login_required
+def api_test_debug(task_id):
+    """تقرير مفصل عن اختبار — للـ debugging"""
+    from pathlib import Path
+    results_dir = Path(__file__).resolve().parent.parent / "reports" / "results"
+    logs_dir = Path(__file__).resolve().parent.parent / "reports" / "logs"
+
+    # raw JSON
+    raw_file = results_dir / f"raw_{task_id}.json"
+    summary_file = results_dir / f"summary_{task_id}.json"
+    log_file = logs_dir / f"{task_id}.log"
+
+    info = {
+        "task_id": task_id,
+        "raw_json_exists": raw_file.exists(),
+        "summary_json_exists": summary_file.exists(),
+        "log_exists": log_file.exists(),
+    }
+
+    if raw_file.exists():
+        try:
+            with open(raw_file, "r", encoding="utf-8") as f:
+                raw_data = json.load(f)
+            info["summary"] = raw_data.get("summary", {})
+            info["tests"] = [
+                {
+                    "nodeid": t.get("nodeid", ""),
+                    "outcome": t.get("outcome", ""),
+                    "duration": round(t.get("duration", 0), 2),
+                }
+                for t in raw_data.get("tests", [])
+            ]
+        except Exception as e:
+            info["raw_error"] = str(e)[:200]
+
+    if log_file.exists():
+        try:
+            with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            info["log_size"] = len(content)
+            info["log_preview"] = content[-2000:]  # آخر 2000 حرف
+        except Exception as e:
+            info["log_error"] = str(e)[:200]
+
+    return jsonify(info)
+
+
+# ==================== End Test Logs ====================
+
+# ==================== End Modules & Pages ====================
 
 if __name__ == "__main__":
     import os

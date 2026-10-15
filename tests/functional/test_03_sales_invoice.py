@@ -72,7 +72,7 @@ def test_full_sales_invoice_flow(driver, credentials):
     invoice.click_save()
 
     logger.info("التعامل مع SweetAlerts...")
-    swal_count = invoice.handle_all_swals(max_count=5, timeout=25)
+    swal_count = invoice.handle_all_swals(max_count=3, timeout=5)
     logger.info(f"عدد SweetAlerts اللي اتعاملنا معاها: {swal_count}")
 
     logger.info("11) انتظار نتيجة الحفظ...")
@@ -97,7 +97,6 @@ def test_full_sales_invoice_flow(driver, credentials):
     # النجاح النهائي
     logger.success(f"🎉 الفاتورة اتحفظت بنجاح! ({int(elapsed)} ثانية)")
 
-    logger.success(f"🎉 الفاتورة اتحفظت بنجاح! ({int(elapsed)} ثانية)")
 
 
 

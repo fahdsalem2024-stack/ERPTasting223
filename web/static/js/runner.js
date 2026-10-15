@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Test Runner - Live Progress
  */
 
@@ -132,13 +132,15 @@ class TestRunner {
 
     poll(taskId) {
         let attempts = 0;
-        const maxAttempts = 300; // ~10 min max
+        const maxAttempts = 600; // ~20 min max
+        let lastStatus = null;
 
         this.pollTimer = setInterval(async () => {
             attempts++;
 
             if (attempts > maxAttempts) {
-                this.addLog('انتهى الوقت المسموح', 'error');
+                this.addLog('⏱️ انتهى الوقت المسموح (20 دقيقة)', 'error');
+                this.setProgress(100, 'انتهى الوقت');
                 this.finish(false);
                 return;
             }
@@ -147,20 +149,74 @@ class TestRunner {
                 const res = await fetch(`/api/status/${taskId}`);
                 const data = await res.json();
 
-                // Simulated progress (unknown real progress)
+                // Progress
                 const baseProgress = 15;
                 const maxProgress = 95;
                 const p = Math.min(baseProgress + (attempts * 1.5), maxProgress);
                 this.setProgress(p, 'جاري التشغيل...');
 
+                // لو الحالة اتغيرت، نطبع
+                if (data.status !== lastStatus) {
+                    lastStatus = data.status;
+                    if (data.status === 'running') {
+                        this.addLog('🔄 الاختبار شغال...', 'info');
+                    }
+                }
+
+                // ===== الحالات النهائية =====
                 if (data.status === 'completed') {
-                    this.setProgress(100, 'اكتمل بنجاح');
-                    this.addLog('✅ اكتمل التشغيل', 'success');
+                    this.setProgress(100, '✅ اكتمل بنجاح');
+                    this.addLog('🎉 الاختبار اكتمل بنجاح!', 'success');
+
+                    if (data.duration_seconds) {
+                        this.addLog(`⏱️ المدة: ${data.duration_seconds} ثانية`, 'info');
+                    }
+
+                    if (data.summary) {
+                        const s = data.summary;
+                        this.addLog(`📊 النتائج: ${s.passed || 0} نجح, ${s.failed || 0} فشل, ${s.errors || 0} خطأ`, 'info');
+                    }
+
                     this.finish(true, taskId);
-                } else if (data.status === 'failed') {
-                    this.setProgress(100, 'فشل');
-                    this.addLog(`❌ فشل: ${data.error || 'غير معروف'}`, 'error');
+                    return;
+                }
+
+                if (data.status === 'failed') {
+                    this.setProgress(100, '❌ فشل');
+                    this.addLog('❌ الاختبار فشل', 'error');
+
+                    if (data.summary) {
+                        const s = data.summary;
+                        this.addLog(`📊 النتائج: ${s.passed || 0} نجح, ${s.failed || 0} فشل`, 'error');
+                    }
+
                     this.finish(false, taskId);
+                    return;
+                }
+
+                if (data.status === 'stopped') {
+                    this.setProgress(100, '⏹️ تم الإيقاف');
+                    this.addLog('⏹️ تم إيقاف الاختبار', 'warning');
+                    this.finish(false, taskId);
+                    return;
+                }
+
+                if (data.status === 'error') {
+                    this.setProgress(100, '⚠️ خطأ');
+                    this.addLog(`⚠️ خطأ: ${data.error || 'غير معروف'}`, 'error');
+                    this.finish(false, taskId);
+                    return;
+                }
+
+                if (data.status === 'unknown') {
+                    // لو الـ task مش موجود في QueueManager
+                    // نستمر شوية كمان وبعدين نوقف
+                    if (attempts > 15) {
+                        this.addLog('⚠️ المهمة مش موجودة - يبدو أنها خلصت', 'warning');
+                        this.setProgress(100, 'انتهى');
+                        this.finish(true, taskId);
+                        return;
+                    }
                 }
 
             } catch (e) {

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Config Settings - Reads from active test site profile, falls back to .env
 """
 import os
@@ -95,3 +95,8 @@ for _d in [REPORTS_DIR, RESULTS_DIR, SCREENSHOTS_DIR, LOGS_DIR, DRIVERS_DIR]:
 # ==================== Browser ====================
 BROWSER = "chrome"
 HEADLESS = False
+
+
+# ===== Chrome Profile (Session Persistence) =====
+from pathlib import Path as _Path
+CHROME_PROFILE_DIR = str(_Path(__file__).resolve().parent.parent / "chrome_profile")
