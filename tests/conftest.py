@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 import os
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -9,7 +9,7 @@ from utils.logger import logger
 
 
 SELENIUM_HUB = os.getenv("SELENIUM_HUB", "http://localhost:4444")
-USE_GRID = os.getenv("USE_SELENIUM_GRID", "true").lower() == "true"
+USE_GRID = os.getenv("USE_SELENIUM_GRID", "false").lower() == "true"
 
 
 @pytest.fixture(scope="function")

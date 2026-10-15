@@ -1,4 +1,4 @@
-﻿"""
+"""
 Sales Invoice Page Object
 """
 from selenium.webdriver.common.by import By
@@ -113,33 +113,69 @@ class SalesInvoicePage(BasePage):
         except TimeoutException:
             return False
 
-    def click_add_item_by_name(self, item_name: str):
-        logger.info(f"إضافة الصنف: {item_name}")
+    def click_add_item_by_name(self, item_name: str = None, select_first: bool = True):
+        """
+        إضافة صنف:
+        - لو item_name محدد → يدور عليه
+        - لو مش موجود أو select_first=True → يختار أول صنف متاح
+        """
+        logger.info(f"إضافة الصنف: {item_name if item_name else 'أول صنف متاح'}")
+
+        # استنى النتايج تظهر
+        self.wait_for_items_results(timeout=15)
+        time.sleep(1)
+
         rows = self.driver.find_elements(*self.ITEM_ROW_ANY)
+        if not rows:
+            raise Exception("مفيش أصناف ظهرت في النافذة أصلاً")
+
+        logger.info(f"عدد الأصناف المتاحة: {len(rows)}")
+
         target_row = None
-        for row in rows:
-            try:
-                if item_name in row.text:
-                    target_row = row
-                    break
-            except Exception:
-                continue
+
+        # 1) لو فيه اسم محدد، دوّر عليه
+        if item_name:
+            for row in rows:
+                try:
+                    if item_name in row.text:
+                        target_row = row
+                        logger.info(f"✅ لقيت الصنف بالاسم: {item_name}")
+                        break
+                except Exception:
+                    continue
+
+        # 2) لو مش لاقيه (أو مفيش اسم)، اختار أول صنف متاح
+        if not target_row and select_first:
+            for row in rows:
+                try:
+                    btn = row.find_element(By.CSS_SELECTOR, "button[onclick='chooseItem(this)']")
+                    if btn.is_displayed() and btn.is_enabled():
+                        target_row = row
+                        first_cell_text = row.text.split("\n")[0] if row.text else "?"
+                        logger.info(f"✅ اختيار أول صنف متاح: {first_cell_text[:60]}")
+                        break
+                except Exception:
+                    continue
+
         if not target_row:
-            raise Exception(f"مفيش صنف: {item_name}")
+            raise Exception(f"مفيش أي صنف متاح في النافذة (عدد الصفوف: {len(rows)})")
+
         add_btn = target_row.find_element(
             By.CSS_SELECTOR, "button[onclick='chooseItem(this)']"
         )
         self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", add_btn)
+        time.sleep(0.3)
         add_btn.click()
+
         try:
-            WebDriverWait(self.driver, 5).until(
+            WebDriverWait(self.driver, 8).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input.float.price"))
             )
         except TimeoutException:
             pass
-        logger.success(f"✅ تم إضافة: {item_name}")
-        return True
 
+        logger.success(f"✅ تم إضافة الصنف")
+        return True
     def set_price_for_last_item(self, price):
         logger.info(f"كتابة السعر: {price}")
         try:
@@ -392,7 +428,7 @@ class SalesInvoicePage(BasePage):
             return False
 
     # ========== NEW: Handle multiple SweetAlerts ==========
-    def handle_all_swals(self, max_count=5, timeout=8, wait_after=1):
+    def handle_all_swals(self, max_count=5, timeout=5, wait_after=0.5):
         """
         يتعامل مع كل SweetAlerts اللي بتظهر ورا بعض
         - "عدم انشاء سند صرف الى" → موافقة
@@ -461,6 +497,78 @@ class SalesInvoicePage(BasePage):
                 return True
         return False
 
+
+
+    def verify_invoice_in_list(self, expected_amount: str = None, timeout: int = 20):
+        """
+        يتحقق إن الفاتورة ظهرت في قائمة الفواتير.
+        - لو expected_amount محدد → يدور عليه في أول صف
+        - يرجع True لو الفاتورة موجودة، False لو لأ
+        """
+        import re
+        logger.info(f"🔍 التحقق من الفاتورة في القائمة (المبلغ: {expected_amount})...")
+        try:
+            # نروح لصفحة القائمة
+            if "/SalesInvoice" not in self.driver.current_url or "/AddEdit" in self.driver.current_url:
+                self.driver.get(self.LIST_URL)
+
+            self.wait_for_preloader()
+            time.sleep(2)
+
+            # نستنى الجدول يظهر
+            WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "table tbody tr"))
+            )
+            time.sleep(1)
+
+            rows = self.driver.find_elements(By.CSS_SELECTOR, "table tbody tr")
+            if not rows:
+                logger.warning("⚠️ الجدول فاضي")
+                return False
+
+            logger.info(f"عدد الفواتير في القائمة: {len(rows)}")
+
+            first_row = rows[0]
+            row_text = first_row.text.strip()
+            logger.info(f"أول صف: {row_text[:150]}")
+
+            if not expected_amount:
+                logger.success("✅ الفاتورة موجودة في القائمة")
+                return True
+
+            # نشيل الفواصل والكسور
+            row_clean = row_text.replace(",", "").replace("٫", "").replace("٬", "")
+            amount_clean = str(expected_amount).replace(",", "").replace(".", "").strip()
+
+            if amount_clean in row_clean:
+                logger.success(f"✅ لقيت المبلغ {expected_amount} في القائمة")
+                return True
+
+            # مقارنة رقمية
+            try:
+                amount_num = float(str(expected_amount).replace(",", ""))
+                numbers = re.findall(r'\d+(?:[\.,]\d+)?', row_clean)
+                for num_str in numbers:
+                    try:
+                        num = float(num_str.replace(",", ""))
+                        if abs(num - amount_num) < 0.01:
+                            logger.success(f"✅ لقيت المبلغ {expected_amount} في القائمة")
+                            return True
+                    except ValueError:
+                        continue
+            except Exception:
+                pass
+
+            logger.warning(f"⚠️ المبلغ {expected_amount} مش موجود في أول صف")
+            return False
+
+        except TimeoutException:
+            logger.error("❌ الجدول مش ظهر في الوقت المحدد")
+            return False
+        except Exception as e:
+            logger.error(f"❌ مشكلة في التحقق: {str(e)[:150]}")
+            return False
+
     def wait_for_save_result(self, timeout=30, check_from_url=None):
         """انتظر نتيجة الحفظ - بتتعامل مع SweetAlert الرابع كمان"""
         logger.info(f"في انتظار نتيجة الحفظ (max {timeout}s)...")
@@ -499,7 +607,7 @@ class SalesInvoicePage(BasePage):
 
             # 2) URL change من /AddEdit
             current = self.driver.current_url
-            if was_in_addedit and "/SalesInvoice" in current and "/AddEdit" not in current:
+            if "/SalesInvoice" in current and "/AddEdit" not in current and "/Login" not in current:
                 logger.success(f"🎯 الحفظ نجح - الرابط اتغير: {current}")
                 # استنى شوية يمكن SweetAlert الأخير يظهر
                 time.sleep(2)

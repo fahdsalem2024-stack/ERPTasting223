@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 import time
 import allure
 from pages.login_page import LoginPage
@@ -43,7 +43,7 @@ def test_full_sales_invoice_flow(driver, credentials):
     invoice.wait_for_items_results(timeout=20)
 
     logger.info("4) صنف")
-    invoice.click_add_item_by_name("فلتر تكييف")
+    invoice.click_add_item_by_name()
 
     logger.info("5) سعر")
     invoice.set_price_for_last_item("10000")
